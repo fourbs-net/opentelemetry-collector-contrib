@@ -16,6 +16,7 @@ package sentryexporter
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
@@ -26,7 +27,6 @@ import (
 	"strings"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/google/uuid"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/model/pdata"
@@ -378,10 +378,11 @@ func transactionFromSpan(span *sentry.Span) *sentry.Event {
 	transaction.EventID = generateEventID()
 
 	transaction.Contexts["trace"] = sentry.TraceContext{
-		TraceID: span.TraceID,
-		SpanID:  span.SpanID,
-		Op:      span.Op,
-		Status:  span.Status,
+		TraceID:     span.TraceID,
+		SpanID:      span.SpanID,
+		Op:          span.Op,
+		Description: span.Description,
+		Status:      span.Status,
 	}
 
 	transaction.Type = "transaction"
@@ -397,12 +398,19 @@ func transactionFromSpan(span *sentry.Span) *sentry.Event {
 	return transaction
 }
 
-func generateEventID() sentry.EventID {
-	id, _ := uuid.New().MarshalBinary()
-	out := make([]byte, 32, 32)
-	hex.Encode(out, id)
+func uuid() string {
+	id := make([]byte, 16)
+	// Prefer rand.Read over rand.Reader, see https://go-review.googlesource.com/c/go/+/272326/.
+	_, _ = rand.Read(id)
+	id[6] &= 0x0F // clear version
+	id[6] |= 0x40 // set version to 4 (random uuid)
+	id[8] &= 0x3F // clear variant
+	id[8] |= 0x80 // set to IETF variant
+	return hex.EncodeToString(id)
+}
 
-	return sentry.EventID(out)
+func generateEventID() sentry.EventID {
+	return sentry.EventID(uuid())
 }
 
 // CreateSentryExporter returns a new Sentry Exporter.
