@@ -102,15 +102,15 @@ func (s *SentryExporter) pushTraceData(_ context.Context, td pdata.Traces) error
 		}
 	}
 
-	if len(transactionMap) == 0 {
-		return nil
-	}
-
 	// After the first pass through, we can't necessarily make the assumption we have not associated all
 	// the spans with a transaction. As such, we must classify the remaining spans as orphans or not.
 	orphanSpans := classifyAsOrphanSpans(maybeOrphanSpans, len(maybeOrphanSpans)+1, idMap, transactionMap)
 
 	transactions := generateTransactions(transactionMap, orphanSpans)
+
+	if len(transactions) == 0 {
+		return nil
+	}
 
 	events := append(transactions, exceptionEvents...)
 
@@ -378,11 +378,12 @@ func transactionFromSpan(span *sentry.Span) *sentry.Event {
 	transaction.EventID = generateEventID()
 
 	transaction.Contexts["trace"] = sentry.TraceContext{
-		TraceID:     span.TraceID,
-		SpanID:      span.SpanID,
-		Op:          span.Op,
-		Description: span.Description,
-		Status:      span.Status,
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: span.ParentSpanID,
+		Op:           span.Op,
+		Description:  span.Description,
+		Status:       span.Status,
 	}
 
 	transaction.Type = "transaction"
