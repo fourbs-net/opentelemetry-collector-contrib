@@ -235,7 +235,7 @@ func convertToSentrySpan(span pdata.Span, library pdata.InstrumentationLibrary, 
 		tags[k] = v
 	}
 
-	status, message := statusFromSpanStatus(span.Status())
+	status, message := statusFromSpan(span)
 
 	if message != "" {
 		tags["status_message"] = message
@@ -360,9 +360,37 @@ func generateTagsFromAttributes(attrs pdata.AttributeMap) map[string]string {
 	return tags
 }
 
-func statusFromSpanStatus(spanStatus pdata.SpanStatus) (status sentry.SpanStatus, message string) {
+// Guess the transaction status from the HTTP status.
+// [Sentry Docs](https://develop.sentry.dev/sdk/event-payloads/transaction/)
+func sentryStatusFromHTTPStatus(httpCode int64) sentry.SpanStatus {
+	switch httpCode {
+	case 400: return sentry.SpanStatusInvalidArgument
+	case 401: return sentry.SpanStatusUnauthenticated
+	case 403: return sentry.SpanStatusPermissionDenied
+	case 404: return sentry.SpanStatusNotFound
+	case 409: return sentry.SpanStatusAborted
+	case 429: return sentry.SpanStatusResourceExhausted
+	case 499: return sentry.SpanStatusCanceled
+	case 501: return sentry.SpanStatusUnimplemented
+	case 503: return sentry.SpanStatusUnavailable
+	case 504: return sentry.SpanStatusDeadlineExceeded
+	default: 
+		if httpCode >= 200 && httpCode <= 299 {
+			return sentry.SpanStatusOK
+		} else {
+			return sentry.SpanStatusUnknown
+		}
+	}
+}
+
+func statusFromSpan(span pdata.Span) (status sentry.SpanStatus, message string) {
+	spanStatus := span.Status()
 	code := spanStatus.Code()
 	if code < 0 || int(code) >= len(canonicalCodes) {
+		if status, ok := span.Attributes().Get(conventions.AttributeHTTPStatusCode); ok {
+			// If the status code is unknown but this is a HTTP request with a HTTP status, we can make a better guess.
+			return sentryStatusFromHTTPStatus(status.IntVal()), ""
+		}
 		return sentry.SpanStatusUnknown, fmt.Sprintf("error code %d", code)
 	}
 
