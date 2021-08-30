@@ -297,7 +297,7 @@ func generateSpanDescriptors(name string, attrs pdata.AttributeMap, spanKind pda
 		return opBuilder.String(), dBuilder.String()
 	}
 
-	// If db.type exists then this is a database call span.
+	// If db.system exists then this is a database call span.
 	if _, ok := attrs.Get(conventions.AttributeDBSystem); ok {
 		opBuilder.WriteString("db")
 
@@ -376,10 +376,23 @@ func spanIsTransaction(s pdata.Span) bool {
 	return s.ParentSpanID() == pdata.SpanID{} || kind == pdata.SpanKindServer || kind == pdata.SpanKindConsumer
 }
 
+func generateRequestDataFromSpan(span *sentry.Span) *sentry.Request {
+	// If there is a http.method tag we can assume this span has request data.
+	if method, ok := span.Tags[conventions.AttributeHTTPMethod]; ok {
+		request := sentry.Request {
+			Method: method,
+			URL: span.Tags[conventions.AttributeHTTPURL],
+		}
+		return &request
+	}
+	return nil
+}
+
 // transactionFromSpan converts a span to a transaction.
 func transactionFromSpan(span *sentry.Span) *sentry.Event {
 	transaction := sentry.NewEvent()
 	transaction.EventID = generateEventID()
+	transaction.Request = generateRequestDataFromSpan(span)
 
 	transaction.Contexts["trace"] = sentry.TraceContext{
 		TraceID:      span.TraceID,
